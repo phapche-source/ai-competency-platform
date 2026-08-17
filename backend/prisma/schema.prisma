@@ -1,0 +1,171 @@
+// Prisma schema — khớp với migration 001_core_identity_track_exam trên Supabase
+// project_ref: qkxnckegzoalgfhydwvx
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RegistrationStatus {
+  DRAFT
+  ELIGIBILITY_PENDING
+  ELIGIBLE
+  SCHEDULED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+
+  @@map("registration_status")
+}
+
+enum RouteCode {
+  AI_HE   @map("AI-HE")
+  AI_GV   @map("AI-GV")
+  AI_VET  @map("AI-VET")
+  AI_GVET @map("AI-GVET")
+
+  @@map("route_code")
+}
+
+model Tenant {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  users     User[]
+  tracks    Track[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  email     String
+  phone     String?
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now()) @map("created_at")
+  profile   PersonProfile?
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model PersonProfile {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  userId            String   @unique @map("user_id") @db.Uuid
+  user              User     @relation(fields: [userId], references: [id])
+  fullName          String   @map("full_name")
+  dateOfBirth       DateTime? @map("date_of_birth") @db.Date
+  nationality       String?
+  nationalIdRef     String?  @map("national_id_ref")
+  preferredLanguage String?  @default("vi") @map("preferred_language")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @map("updated_at")
+  registrations     Registration[]
+
+  @@map("person_profiles")
+}
+
+model Track {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  code      RouteCode
+  name      String
+  status    String   @default("DRAFT")
+  createdAt DateTime @default(now()) @map("created_at")
+  frameworkVersions FrameworkVersion[]
+  examPrograms      ExamProgram[]
+  registrations     Registration[]
+
+  @@unique([tenantId, code])
+  @@map("tracks")
+}
+
+model FrameworkVersion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  trackId       String   @map("track_id") @db.Uuid
+  track         Track    @relation(fields: [trackId], references: [id])
+  versionLabel  String   @map("version_label")
+  domains       Json     @default("[]")
+  competencies  Json     @default("[]")
+  levels        Json     @default("[]")
+  isImmutable   Boolean  @default(false) @map("is_immutable")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([trackId, versionLabel])
+  @@map("framework_versions")
+}
+
+model ExamProgram {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  trackId        String   @map("track_id") @db.Uuid
+  track          Track    @relation(fields: [trackId], references: [id])
+  programVersion String   @map("program_version")
+  isLocked       Boolean  @default(false) @map("is_locked")
+  createdAt      DateTime @default(now()) @map("created_at")
+  examEvents     ExamEvent[]
+  registrations  Registration[]
+
+  @@unique([trackId, programVersion])
+  @@map("exam_programs")
+}
+
+model ExamEvent {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  examProgramId   String   @map("exam_program_id") @db.Uuid
+  examProgram     ExamProgram @relation(fields: [examProgramId], references: [id])
+  eventCode       String   @map("event_code")
+  mode            String   @default("ONLINE")
+  language        String   @default("vi")
+  scheduledStart  DateTime @map("scheduled_start")
+  scheduledEnd    DateTime @map("scheduled_end")
+  centerName      String?  @map("center_name")
+  capacity        Int?
+  createdAt       DateTime @default(now()) @map("created_at")
+  registrations   Registration[]
+
+  @@unique([examProgramId, eventCode])
+  @@map("exam_events")
+}
+
+model Registration {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  personProfileId String   @map("person_profile_id") @db.Uuid
+  personProfile   PersonProfile @relation(fields: [personProfileId], references: [id])
+  trackId         String   @map("track_id") @db.Uuid
+  track           Track    @relation(fields: [trackId], references: [id])
+  examProgramId   String   @map("exam_program_id") @db.Uuid
+  examProgram     ExamProgram @relation(fields: [examProgramId], references: [id])
+  examEventId     String?  @map("exam_event_id") @db.Uuid
+  examEvent       ExamEvent? @relation(fields: [examEventId], references: [id])
+  status          RegistrationStatus @default(DRAFT)
+  eligibilityNote String?  @map("eligibility_note")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @map("updated_at")
+
+  @@map("registrations")
+}
+
+model AuditEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String?  @map("tenant_id") @db.Uuid
+  actorUserId   String?  @map("actor_user_id") @db.Uuid
+  action        String
+  resourceType  String   @map("resource_type")
+  resourceId    String?  @map("resource_id") @db.Uuid
+  reason        String?
+  correlationId String   @default(dbgenerated("gen_random_uuid()")) @map("correlation_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("audit_events")
+}
